@@ -5,7 +5,7 @@ A short description.
 ## Demo
 
 <p align="center">
-  <img src="images/demo.png" alt="Demo screenshot of app" width="720" />
+  <img src="demo.png" alt="Demo screenshot of app" width="720" />
 </p>
 
 Click the image to view full-size:
