@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Stripe Test Payment — Demo</title>
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial; max-width:800px; margin:28px auto; padding:18px; color:#111;}
+    .card { background:#fff; padding:18px; border-radius:8px; box-shadow:0 1px 6px rgba(0,0,0,0.06); }
+    label { display:block; font-weight:600; margin-top:10px; margin-bottom:6px; }
+    input, button { width:100%; padding:10px 12px; border-radius:6px; border:1px solid #d1d5db; font-size:16px; box-sizing:border-box;}
+    .row { display:flex; gap:8px; }
+    .row > * { flex:1; }
+    button.primary { background:#6772e5; color:#fff; border:0; cursor:pointer; }
+    pre.output { background:#0f172a; color:#e6eef0; padding:12px; border-radius:6px; overflow:auto; min-height:64px; white-space:pre-wrap; }
+    .muted { color:#6b7280; font-size:13px; margin-top:8px;}
+    #card-element { padding:12px; border:1px solid #d1d5db; border-radius:6px; background:#fff; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Stripe Test Payment (Demo)</h1>
+    <p class="muted">This demo uses Stripe test keys. Use only in test mode and with Stripe test card numbers.</p>
+
+    <label for="name">Cardholder name</label>
+    <input id="name" placeholder="Jane Doe" />
+
+    <label for="amount">Amount (USD, e.g. 12.50)</label>
+    <input id="amount" placeholder="Amount in dollars (ex: 12.50)" />
+
+    <label for="card-element">Card details (test cards)</label>
+    <div id="card-element"><!-- Stripe Element will mount here --></div>
+
+    <div style="margin-top:12px;" class="row">
+      <button id="payBtn" class="primary">Pay</button>
+    </div>
+
+    <div style="margin-top:12px;">
+      <label>Result / Debug</label>
+      <pre id="output" class="output" aria-live="polite"></pre>
+    </div>
+
+    <div class="muted">
+      Use test card numbers like <strong>4242 4242 4242 4242</strong> (any future expiry, any CVC).
+      For more test numbers see Stripe docs: https://stripe.com/docs/testing
+    </div>
+  </div>
+
+  <!-- Load Stripe.js (replace publishable key will be fetched from server) -->
+  <script src="https://js.stripe.com/v3/"></script>
+  <script>
+    // Client-side logic: fetch publishable key & create PaymentIntent via server
+    let stripe = null;
+    let elements = null;
+    let cardElement = null;
+    const output = document.getElementById('output');
+    const payBtn = document.getElementById('payBtn');
+
+    function log(msg) {
+      output.textContent = (output.textContent ? output.textContent + "\n" : "") + msg;
+    }
+
+    async function init() {
+      try {
+        const res = await fetch('/config');
+        const cfg = await res.json();
+        if (!cfg.publishableKey) throw new Error('Publishable key not returned by server.');
+        stripe = Stripe(cfg.publishableKey);
+        elements = stripe.elements();
+        const style = {
+          base: {
+            color: "#111",
+            fontSize: "16px",
+            '::placeholder': { color: "#aab7c4" }
+          }
+        };
+        cardElement = elements.create('card', {style});
+        cardElement.mount('#card-element');
+        log('Stripe initialized.');
+      } catch (err) {
+        log('Initialization error: ' + (err.message || err));
+      }
+    }
+
+    async function createPaymentIntent(amountCents) {
+      const res = await fetch('/create-payment-intent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount: amountCents, currency: 'usd' })
+      });
+      return res.json();
+    }
+
+    payBtn.addEventListener('click', async () => {
+      output.textContent = '';
+      const name = document.getElementById('name').value || 'Test User';
+      const amountStr = document.getElementById('amount').value || '1.00';
+      const amount = Math.round(parseFloat(amountStr) * 100);
+      if (isNaN(amount) || amount <= 0) { log('Enter a valid amount (e.g. 12.50).'); return; }
+
+      try {
+        log(`Creating PaymentIntent for $${(amount/100).toFixed(2)}...`);
+        const pi = await createPaymentIntent(amount);
+        if (pi.error) { log('Server error: ' + pi.error); return; }
+        const clientSecret = pi.clientSecret;
+        log('Confirming card payment with clientSecret (test) ...');
+
+        const confirmResult = await stripe.confirmCardPayment(clientSecret, {
+          payment_method: {
+            card: cardElement,
+            billing_details: { name }
+          }
+        });
+
+        if (confirmResult.error) {
+          log('Payment failed: ' + confirmResult.error.message);
+        } else if (confirmResult.paymentIntent && confirmResult.paymentIntent.status === 'succeeded') {
+          log('Payment succeeded! PaymentIntent id: ' + confirmResult.paymentIntent.id);
+          log('Full PaymentIntent JSON:\n' + JSON.stringify(confirmResult.paymentIntent, null, 2));
+        } else {
+          log('Payment result: ' + JSON.stringify(confirmResult));
+        }
+      } catch (err) {
+        log('Client error: ' + (err.message || err));
+      }
+    });
+
+    // Initialize on load
+    init();
+  </script>
+</body>
+</html>
